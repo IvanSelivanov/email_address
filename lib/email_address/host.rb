@@ -1,3 +1,4 @@
+
 require 'simpleidn'
 require 'resolv'
 require 'netaddr'
@@ -88,6 +89,7 @@ module EmailAddress
       @original            = host_name ||= ''
       config[:host_type] ||= :email
       @config              = config
+      @error               = @error_message = nil
       parse(host_name)
     end
 
@@ -343,7 +345,7 @@ module EmailAddress
     # Returns an array of EmailAddress::Exchanger hosts configured in DNS.
     # The array will be empty if none are configured.
     def exchangers
-      return nil if @config[:host_type] != :email || !self.dns_enabled?
+      #return nil if @config[:host_type] != :email || !self.dns_enabled?
       @_exchangers ||= EmailAddress::Exchanger.cached(self.dns_name, @config)
     end
 
@@ -399,11 +401,6 @@ module EmailAddress
       end
     end
 
-    # The inverse of valid? -- Returns nil (falsey) if valid, otherwise error message
-    def error
-      valid? ? nil : @error_message
-    end
-
     # True if the host name has a DNS A Record
     def valid_dns?
       bool = dns_a_record.size > 0 || set_error(:domain_unknown)
@@ -415,7 +412,7 @@ module EmailAddress
 
     # True if the host name has valid MX servers configured in DNS
     def valid_mx?
-      if self.exchangers.blank?
+      if self.exchangers.nil?
         set_error(:domain_unknown)
       elsif self.exchangers.mx_ips.size > 0
         if self.localhost? && !@config[:host_local]
@@ -433,10 +430,10 @@ module EmailAddress
     # True if the host_name passes Regular Expression match and size limits.
     def valid_format?
       if self.host_name =~ CANONICAL_HOST_REGEX && self.to_s.size <= MAX_HOST_LENGTH
-        true
-      else
-        set_error(:domain_invalid)
+        return true if localhost?
+        return true if self.host_name.include?(".") # require FQDN
       end
+      set_error(:domain_invalid)
     end
 
     # Returns true if the IP address given in that form of the host name
@@ -460,11 +457,11 @@ module EmailAddress
       if self.ip_address
         rel =
           if self.ip_address.include?(":")
-            NetAddr::IPv6Net.parse("::1").rel(
+            NetAddr::IPv6Net.parse(""+"::1").rel(
               NetAddr::IPv6Net.parse(self.ip_address)
             )
           else
-            NetAddr::IPv4Net.parse("127.0.0.0/8").rel(
+            NetAddr::IPv4Net.parse(""+"127.0.0.0/8").rel(
               NetAddr::IPv4Net.parse(self.ip_address)
             )
           end
@@ -495,9 +492,15 @@ module EmailAddress
     end
 
     def set_error(err, reason=nil)
-      @error_message = EmailAddress::Config.error_messages.fetch(err) { err }
+      @error         = err
       @reason        = reason
+      @error_message = EmailAddress::Config.error_message(err)
       false
+    end
+
+    # The inverse of valid? -- Returns nil (falsey) if valid, otherwise error message
+    def error
+      self.valid? ? nil : @error_message
     end
 
   end
